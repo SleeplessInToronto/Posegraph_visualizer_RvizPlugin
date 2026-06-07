@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>slam_adapters</name>
+  <version>0.1.0</version>
+  <description>Launch files and config for integrating third-party SLAM libraries with factor_graph_rviz_plugin.</description>
+  <maintainer email="a.solares88@gmail.com">treblemaker</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>pcl_conversions</depend>
+
+  <exec_depend>lio_sam</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

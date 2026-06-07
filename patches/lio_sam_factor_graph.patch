@@ -1,0 +1,118 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7f4b783..8265fe6 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -30,6 +30,7 @@ find_package(PCL REQUIRED)
+ find_package(GTSAM REQUIRED)
+ find_package(Eigen REQUIRED)
+ find_package(OpenMP REQUIRED)
++find_package(factor_graph_msgs REQUIRED)
+ 
+ include_directories(
+   include/lio_sam
+@@ -53,7 +54,7 @@ ament_target_dependencies(${PROJECT_NAME}_imuPreintegration rclcpp rclpy std_msg
+ target_link_libraries(${PROJECT_NAME}_imuPreintegration gtsam "${cpp_typesupport_target}")
+ 
+ add_executable(${PROJECT_NAME}_mapOptimization src/mapOptmization.cpp)
+-ament_target_dependencies(${PROJECT_NAME}_mapOptimization rclcpp rclpy std_msgs sensor_msgs geometry_msgs nav_msgs pcl_conversions pcl_msgs visualization_msgs tf2 tf2_ros tf2_eigen tf2_sensor_msgs tf2_geometry_msgs OpenCV PCL GTSAM)
++ament_target_dependencies(${PROJECT_NAME}_mapOptimization rclcpp rclpy std_msgs sensor_msgs geometry_msgs nav_msgs pcl_conversions pcl_msgs visualization_msgs tf2 tf2_ros tf2_eigen tf2_sensor_msgs tf2_geometry_msgs OpenCV PCL GTSAM factor_graph_msgs)
+ if (OpenMP_CXX_FOUND)
+   target_link_libraries(${PROJECT_NAME}_mapOptimization gtsam "${cpp_typesupport_target}" OpenMP::OpenMP_CXX)
+ else()
+diff --git a/package.xml b/package.xml
+index 37de34d..75860f0 100644
+--- a/package.xml
++++ b/package.xml
+@@ -32,6 +32,7 @@
+   <build_depend>libpcl-all-dev</build_depend>
+   <build_depend>gtsam</build_depend>
+   <build_depend>eigen</build_depend>
++  <depend>factor_graph_msgs</depend>
+ 
+   <exec_depend>rosidl_default_runtime</exec_depend>
+   <exec_depend>rclcpp</exec_depend>
+diff --git a/src/mapOptmization.cpp b/src/mapOptmization.cpp
+index 1fa4451..a07e4fe 100644
+--- a/src/mapOptmization.cpp
++++ b/src/mapOptmization.cpp
+@@ -1,6 +1,7 @@
+ #include "utility.hpp"
+ #include "lio_sam/msg/cloud_info.hpp"
+ #include "lio_sam/srv/save_map.hpp"
++#include <factor_graph_publisher.hpp>
+ #include <gtsam/geometry/Rot3.h>
+ #include <gtsam/geometry/Pose3.h>
+ #include <gtsam/slam/PriorFactor.h>
+@@ -151,8 +152,11 @@ public:
+ 
+     std::unique_ptr<tf2_ros::TransformBroadcaster> br;
+ 
++    std::unique_ptr<factor_graph_viz::FactorGraphPublisher> fg_pub_;
++
+     mapOptimization(const rclcpp::NodeOptions & options) : ParamServer("lio_sam_mapOptimization", options)
+     {
++        fg_pub_ = std::make_unique<factor_graph_viz::FactorGraphPublisher>(this, "/factor_graph", odometryFrame);
+         ISAM2Params parameters;
+         parameters.relinearizeThreshold = 0.1;
+         parameters.relinearizeSkip = 1;
+@@ -571,7 +575,10 @@ public:
+         icp.align(*unused_result);
+ 
+         if (icp.hasConverged() == false || icp.getFitnessScore() > historyKeyframeFitnessScore)
++        {
++            fg_pub_->add_rejected(loopKeyPre, loopKeyCur);
+             return;
++        }
+ 
+         // publish corrected cloud
+         if (pubIcpKeyFrames->get_subscription_count() != 0)
+@@ -606,6 +613,7 @@ public:
+ 
+         // add loop constriant
+         loopIndexContainer[loopKeyCur] = loopKeyPre;
++        fg_pub_->add_loop_closure(loopKeyPre, loopKeyCur);
+     }
+ 
+     bool detectLoopClosureDistance(int *latestID, int *closestID)
+@@ -1545,6 +1553,19 @@ public:
+         thisPose3D.intensity = cloudKeyPoses3D->size(); // this can be used as index
+         cloudKeyPoses3D->push_back(thisPose3D);
+ 
++        // Publish new keyframe to factor graph visualizer
++        {
++            tf2::Quaternion q;
++            q.setRPY(latestEstimate.rotation().roll(),
++                     latestEstimate.rotation().pitch(),
++                     latestEstimate.rotation().yaw());
++            fg_pub_->upsert_pose(
++                static_cast<uint64_t>(thisPose3D.intensity),
++                thisPose3D.x, thisPose3D.y, thisPose3D.z,
++                q.w(), q.x(), q.y(), q.z());
++            fg_pub_->publish(this->now());
++        }
++
+         thisPose6D.x = thisPose3D.x;
+         thisPose6D.y = thisPose3D.y;
+         thisPose6D.z = thisPose3D.z;
+@@ -1611,6 +1632,21 @@ public:
+                 updatePath(cloudKeyPoses6D->points[i]);
+             }
+ 
++            // Re-publish all corrected keyframe positions to the visualizer
++            for (int i = 0; i < numPoses; ++i) {
++                tf2::Quaternion q;
++                q.setRPY(cloudKeyPoses6D->points[i].roll,
++                         cloudKeyPoses6D->points[i].pitch,
++                         cloudKeyPoses6D->points[i].yaw);
++                fg_pub_->upsert_pose(
++                    static_cast<uint64_t>(i),
++                    cloudKeyPoses3D->points[i].x,
++                    cloudKeyPoses3D->points[i].y,
++                    cloudKeyPoses3D->points[i].z,
++                    q.w(), q.x(), q.y(), q.z());
++            }
++            fg_pub_->publish(this->now());
++
+             aLoopIsClosed = false;
+         }
+     }

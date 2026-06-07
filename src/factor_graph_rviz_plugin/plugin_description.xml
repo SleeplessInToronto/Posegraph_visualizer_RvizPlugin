@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<library path="factor_graph_rviz_plugin">
+  <class
+    name="factor_graph_rviz_plugin/FactorGraphDisplay"
+    type="factor_graph_rviz_plugin::FactorGraphDisplay"
+    base_class_type="rviz_common::Display">
+    <description>
+      Displays a factor graph from a factor_graph_msgs/msg/FactorGraph message.
+      Renders pose nodes (spheres), landmark nodes (cubes), and typed factor
+      edges (odometry, loop closure, rejected loop closure, IMU, bearing-range)
+      each in a distinct colour with user-adjustable size and visibility controls.
+    </description>
+    <message_type>factor_graph_msgs/msg/FactorGraph</message_type>
+  </class>
+</library>
